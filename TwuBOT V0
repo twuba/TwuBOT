@@ -1,51 +1,54 @@
 import tweepy
-import time
 
-class MyStreamListener(tweepy.StreamListener):
+# Substitua pelos seus tokens e chaves de autenticação
+BEARER_TOKEN = 'seu_bearer_token'
+API_KEY = 'sua_api_key'
+API_SECRET_KEY = 'sua_api_secret_key'
+ACCESS_TOKEN = 'seu_access_token'
+ACCESS_TOKEN_SECRET = 'seu_access_token_secret'
 
-    def on_status(self, status):
-        print(status.text)
-
-#@twuBOT_TH
-consumer_key = 'XXXXXX'
-consumer_secret = 'XXXXXX'
-
-key = 'XXXXXX'
-secret = 'XXXXXX'
-
-auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-auth.set_access_token(key, secret)
+# Autenticação com OAuth 1.0 para postar tweets
+auth = tweepy.OAuth1UserHandler(
+    API_KEY, API_SECRET_KEY,
+    ACCESS_TOKEN, ACCESS_TOKEN_SECRET
+)
 api = tweepy.API(auth)
 
-myStreamListener = MyStreamListener()
-myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener)
+# Verifica a autenticação para postagem de tweets
+try:
+    api.verify_credentials()
+    print("Autenticação para postar tweets OK")
+except Exception as e:
+    print("Erro durante a autenticação para postar tweets", e)
 
-FILE_NAME = 'last_seen.txt'
+# Cliente de streaming
+class MyStream(tweepy.StreamingClient):
+    def on_tweet(self, tweet):
+        print(f"Tweet recebido: {tweet.text}")
+        try:
+            # Verifica se o tweet é um retweet; se for, ignora
+            if tweet.referenced_tweets[0].type == 'retweeted':
+                return
+        except:
+            pass
 
-def read_last_seen(FILE_NAME):
-    file_read = open(FILE_NAME, 'r')
-    last_seen_id = int(file_read.read().strip())
-    file_read.close()
-    return last_seen_id
+        # Responder ao tweet que menciona "twuba"
+        username = tweet.includes['users'][0].username
+        response_text = f"@{username} acho que você quis dizer @fabrick_th"
+        api.create_tweet(text=response_text, in_reply_to_tweet_id=tweet.id)
+        print(f"Respondido ao tweet: {tweet.id}")
 
-def store_last_seen(FILE_NAME, last_seen_id):
-    file_write = open(FILE_NAME, 'w')
-    file_write.write(str(last_seen_id))
-    file_write.close()
-    return
+# Inicializa o cliente de streaming com o Bearer Token
+stream = MyStream(bearer_token=BEARER_TOKEN, wait_on_rate_limit=True)
 
-twuba = myStream.filter(track=['twuba'])
+# Adiciona regra para filtrar tweets contendo a palavra "twuba"
+# Primeiro, limpe as regras existentes para evitar duplicatas
+current_rules = stream.get_rules().data
+if current_rules is not None:
+    stream.delete_rules([rule.id for rule in current_rules])
 
-def reply():
-    tweets = api.home_timeline(read_last_seen(FILE_NAME), tweet_mode='extended')
-    for tweet in reversed(tweets):
-        if twuba in tweet.full_text():
-            print(str(tweet.id) + ' - ' + tweet.full_text)
-            api.update_status("@" + tweet.user.screen_name + " Reply Text here", tweet.id)
-            api.create_favorite(tweet.id)
-            api.retweet(tweet.id)
-            store_last_seen(FILE_NAME, tweet.id)
+stream.add_rules(tweepy.StreamRule("twuba"))
 
-while True:
-    reply()
-    time.sleep(15)
+# Começa a ouvir os tweets de acordo com a regra definida
+print("Iniciando stream...")
+stream.filter(expansions="author_id", tweet_fields=["referenced_tweets"])
